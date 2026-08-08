@@ -1,0 +1,24 @@
+body {
+    margin: 0;
+    padding: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    background-color: #222;
+}
+
+.container {
+    position: relative;
+}
+
+#webcam {
+    width: 640px;
+    height: 480px;
+    background-color: #000;
+    border-radius: 8px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+    
+    /* 關鍵：水平翻轉影片，讓畫面像照鏡子一樣 */
+    transform: scaleX(-1);
+}
