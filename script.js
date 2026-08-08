@@ -1,13 +1,22 @@
 const videoElement = document.getElementById('webcam');
 const canvasElement = document.getElementById('output_canvas');
 const canvasCtx = canvasElement.getContext('2d');
-
-// ✨ 新增：初始化 Tone.js 合成器，並設定一個狀態變數來追蹤聲音
-const synth = new Tone.Synth().toDestination();
-// ✨ 新增：初始化 Tone.js 音波分析器
+ 
+// ✨ 升級：建立兩種不同音色的合成器，分別給兩隻手使用
+const synths = [
+    new Tone.FMSynth().toDestination(), // FM 合成器音色
+    new Tone.AMSynth().toDestination()  // AM 合成器音色
+];
+// ✨ 升級：一個音波分析器，用於視覺化兩個合成器的混合聲音
 const waveform = new Tone.Waveform();
-synth.connect(waveform);
-let isPlaying = false;
+synths.forEach(synth => synth.connect(waveform)); // 將兩個合成器都連接到分析器
+
+// ✨ 升級：為兩隻手（索引 0 和 1）分別管理聲音狀態
+const handStates = [
+    { isPlaying: false },
+    { isPlaying: false }
+];
+
 // ✨ 新增：用於追蹤音訊核心是否已啟動的狀態旗標
 let isAudioContextStarted = false;
 
@@ -67,76 +76,74 @@ function onResults(results) {
     // 將攝影機影像畫到畫布上，這樣影像和標記點才會在同一個畫布上被一起鏡像
     canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
     
-    let isPinchingThisFrame = false; // 用於追蹤當前這一幀是否有任何手在捏合
+    // ✨ 升級：追蹤此幀中處理了哪些手，以便偵測消失的手
+    const handsProcessed = [false, false];
 
     if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
 
-        // 迴圈處理每一隻手
-        for (const landmarks of results.multiHandLandmarks) {
-            
-            // 使用 drawing_utils 畫出連線 (白色)
+        // ✨ 升級：迴圈處理偵測到的每一隻手
+        results.multiHandLandmarks.forEach((landmarks, i) => {
+            // 根據 MediaPipe 回傳的 handedness 取得手的索引 (0 或 1)
+            const handIndex = results.multiHandedness[i].index;
+            handsProcessed[handIndex] = true;
+
+            // 繪製手部關節點與連線
             drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {
-                color: '#FFFFFF', // 白色連線
-                lineWidth: 1.5
+                color: '#FFFFFF', lineWidth: 1.5
             });
-            
-            // 使用 drawing_utils 畫出節點 (白色)
             drawLandmarks(canvasCtx, landmarks, {
-                color: '#FFFFFF', // 白色節點
-                fillColor: '#FFFFFF',
-                lineWidth: 2,
-                radius: 3
+                color: '#FFFFFF', fillColor: '#FFFFFF', lineWidth: 2, radius: 3
             });
             
             const thumbTip = landmarks[4];
             const indexFingerTip = landmarks[8];
-
             const distance = Math.sqrt(
                 Math.pow(thumbTip.x - indexFingerTip.x, 2) +
                 Math.pow(thumbTip.y - indexFingerTip.y, 2)
             );
-
             const pinchThreshold = 0.05;
 
             if (distance < pinchThreshold) {
-                // ✨ 關鍵修復：在第一次偵測到捏合手勢時，啟動 Tone.js 的音訊核心。
-                // 這是瀏覽器音訊政策的要求，必須由使用者互動觸發。
+                // --- 此手處於「捏合」狀態 ---
                 if (!isAudioContextStarted) {
                     Tone.start();
                     isAudioContextStarted = true;
                     console.log("音訊核心 (AudioContext) 已成功啟動！");
                 }
-                isPinchingThisFrame = true; // 標記這一幀偵測到了捏合
 
                 const minFreq = 261; // C4 音高
                 const maxFreq = 1046; // C6 音高
                 const freq = (1 - indexFingerTip.y) * (maxFreq - minFreq) + minFreq;
 
-                if (!isPlaying) {
-                    synth.triggerAttack(freq);
-                    isPlaying = true;
+                if (!handStates[handIndex].isPlaying) {
+                    synths[handIndex].triggerAttack(freq);
+                    handStates[handIndex].isPlaying = true;
                 }
-                synth.frequency.rampTo(freq, 0.1);
+                synths[handIndex].frequency.rampTo(freq, 0.1);
 
-                // 因為我們只有一個合成器，只要找到任何一隻手在捏合，
-                // 就可以設定好聲音並跳出迴圈，以節省資源。
-                break;
+            } else {
+                // --- 此手處於「放開」狀態 ---
+                if (handStates[handIndex].isPlaying) {
+                    synths[handIndex].triggerRelease();
+                    handStates[handIndex].isPlaying = false;
+                }
             }
-        }
+        });
     }
 
-    // --- 第五步：繪製音波圖 ---
-    // 只有在播放聲音時才需要繪製音波
-    if (isPlaying) {
+    // ✨ 升級：如果某隻手從畫面上消失了，也要確保停止其聲音
+    handsProcessed.forEach((processed, handIndex) => {
+        if (!processed && handStates[handIndex].isPlaying) {
+            synths[handIndex].triggerRelease();
+            handStates[handIndex].isPlaying = false;
+        }
+    });
+
+    // ✨ 升級：只要有任何一隻手在播放聲音，就繪製音波圖
+    const isAnyHandPlaying = handStates.some(state => state.isPlaying);
+    if (isAnyHandPlaying) {
         const waveformValues = waveform.getValue();
         drawWaveform(canvasCtx, waveformValues, canvasElement.width, canvasElement.height);
-    }
-
-    // 在檢查完所有的手之後，如果這一幀沒有任何手在捏合，且聲音仍在播放，就停止它。
-    // 這個邏輯可以正確處理「沒有手」或「有手但沒捏合」這兩種情況。
-    if (!isPinchingThisFrame && isPlaying) {
-        synth.triggerRelease();
-        isPlaying = false;
     }
 
     canvasCtx.restore();
