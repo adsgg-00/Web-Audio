@@ -21,7 +21,11 @@
             align-items: center;
         }
         #webcam {
-            display: none; /* 我們會將影像畫在 canvas 上，所以隱藏 video 元素 */
+            /* 不要使用 display: none，這會導致某些瀏覽器停止處理影片。 */
+            /* 改用其他方式隱藏，同時確保影片仍在背景播放。 */
+            position: absolute;
+            top: -9999px;
+            visibility: hidden;
         }
         #output_canvas {
             width: 100%;
