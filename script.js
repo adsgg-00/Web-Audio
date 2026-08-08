@@ -2,7 +2,7 @@ const videoElement = document.getElementById('webcam');
 const canvasElement = document.getElementById('output_canvas');
 const canvasCtx = canvasElement.getContext('2d');
 
-// --- 1. 攝影機設定 (保留前一步) ---
+// --- 1. 攝影機設定 (保留並確認) ---
 async function setupCamera() {
     try {
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -11,78 +11,108 @@ async function setupCamera() {
         });
         videoElement.srcObject = stream;
         return new Promise((resolve) => {
-            videoElement.onloadedmetadata = () => resolve(videoElement);
+            videoElement.onloadedmetadata = () => {
+                resolve(videoElement);
+            };
         });
     } catch (error) {
         console.error("無法存取攝影機：", error);
     }
 }
 
-// --- 2. 初始化 MediaPipe Hands 模型 ---
-const hands = new Hands({locateFile: (file) => {
-    return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
-}});
+// --- 2. 初始化與設定 MediaPipe Hands 模型 ---
+// 加強 localeFile 設定，確保模型路徑正確
+const hands = new Hands({
+    locateFile: (file) => {
+        const url = `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+        console.log(`正在載入模型檔案: ${file} from ${url}`); // 調試用
+        return url;
+    }
+});
 
-// 設定模型參數
 hands.setOptions({
-    maxNumHands: 2,           // 最多偵測兩隻手
-    modelComplexity: 1,       // 模型複雜度 (預設為 1)
+    maxNumHands: 2,
+    modelComplexity: 1,
     minDetectionConfidence: 0.5,
     minTrackingConfidence: 0.5
 });
 
-// --- 3. 處理辨識結果並繪製在畫布上 ---
+// --- 3. 處理辨識結果並繪製 ---
 hands.onResults(onResults);
 
 function onResults(results) {
-    // 確保畫布的內部解析度與影片解析度一致，畫圖才不會錯位
+    // 【調試點 1】檢查有沒有觸發 results 回調
+    // console.log("onResults triggered");
+
+    // 確保畫布解析度與影片一致 (重要：防止繪製錯位)
     canvasElement.width = videoElement.videoWidth;
     canvasElement.height = videoElement.videoHeight;
     
     canvasCtx.save();
-    // 清除上一幀的畫面
+    
+    // 清除上一幀的畫布
     canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
     
-    // 如果有偵測到手部
-    if (results.multiHandLandmarks) {
-        // 迴圈處理每一隻手 (最多兩隻)
+    // 如果你在 HTML 中將 canvas 疊在 video 上，這裡就不需要再畫 video 的背景圖了
+    // 如果你發現畫不出來，可以試著加上這一行：
+    // canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+    
+    // 【調試點 2】確認是否有偵測到手部數據
+    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        // console.log(`偵測到 ${results.multiHandLandmarks.length} 隻手`);
+
+        // 迴圈處理每一隻手
         for (const landmarks of results.multiHandLandmarks) {
             
-            // 使用 drawing_utils 畫出連線與白點 (還原你圖片中的視覺效果)
-            drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#FFFFFF', lineWidth: 2});
-            drawLandmarks(canvasCtx, landmarks, {color: '#FFFFFF', lineWidth: 4, radius: 3});
+            // 使用 drawing_utils 畫出連線 (白色)
+            drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {
+                color: '#FFFFFF', // 白色連線
+                lineWidth: 1.5
+            });
             
-            // 【關鍵】這裡取得了 21 個點的座標。
-            // 以食指指尖 (索引 8) 為例：
-            // 數值會是 0 到 1 之間的比例值 (例如 0.5 代表在畫面正中間)
+            // 使用 drawing_utils 畫出節點 (白色)
+            drawLandmarks(canvasCtx, landmarks, {
+                color: '#FFFFFF', // 白色節點
+                fillColor: '#FFFFFF',
+                lineWidth: 2,
+                radius: 3
+            });
+            
+            // 【未來功能】這裡取得了 21 個點的座標。
+            // 例如：食指指尖 (索引 8)
             const indexFingerTip = landmarks[8];
-            // console.log("食指 Y 座標:", indexFingerTip.y); // 未來這裡會用來控制音高
+            // 我們可以用 indexFingerTip.y 來控制音高
         }
+    } else {
+        // console.log("未偵測到手部");
     }
     canvasCtx.restore();
 }
 
 // --- 4. 建立影像處理迴圈 ---
-let lastVideoTime = -1;
-async function detectFrame() {
-    // 當影片時間有前進時，才把新的一幀畫面送給模型處理
-    if (videoElement.currentTime !== lastVideoTime) {
-        lastVideoTime = videoElement.currentTime;
+const camera = new Camera(videoElement, {
+    onFrame: async () => {
         await hands.send({image: videoElement});
-    }
-    // 不斷重複執行這個函數
-    requestAnimationFrame(detectFrame);
-}
+    },
+    width: 640,
+    height: 480
+});
 
 // --- 5. 執行主程式 ---
 async function main() {
     console.log("正在啟動攝影機...");
     await setupCamera();
     videoElement.play();
-    console.log("攝影機啟動成功！正在載入 AI 模型 (初次載入需等幾秒)...");
+    console.log("攝影機啟動成功！");
+
+    console.log("正在初始化 MediaPipe 模型...");
+    // 確保模型開始執行
+    await hands.initialize();
+    console.log("模型初始化完成，正在啟動偵測...");
     
-    // 啟動辨識迴圈
-    detectFrame();
+    // 啟動迴圈
+    camera.start();
 }
 
+// 開始
 main();
