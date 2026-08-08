@@ -53,9 +53,8 @@ function onResults(results) {
     // 清除上一幀的畫布
     canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
     
-    // 如果你在 HTML 中將 canvas 疊在 video 上，這裡就不需要再畫 video 的背景圖了
-    // 如果你發現畫不出來，可以試著加上這一行：
-    // canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+    // 將攝影機影像畫到畫布上，這樣影像和標記點才會在同一個畫布上被一起鏡像
+    canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
     
     // 【調試點 2】確認是否有偵測到手部數據
     if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {

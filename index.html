@@ -1,12 +1,39 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-    <!-- ... 其他 head 設定 ... -->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web-Audio Hand Tracking</title>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden; /* 隱藏滾動條 */
+            background-color: #000;
+        }
+        .container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        #webcam {
+            display: none; /* 我們會將影像畫在 canvas 上，所以隱藏 video 元素 */
+        }
+        #output_canvas {
+            width: 100%;
+            height: 100%;
+            object-fit: contain; /* 保持影像比例，完整顯示 */
+            transform: scaleX(-1); /* 水平翻轉，實現鏡像效果 */
+        }
+    </style>
 </head>
 <body>
     <div class="container">
         <video id="webcam" autoplay playsinline></video>
-        <!-- 確保這行存在，且 ID 拼字正確 -->
         <canvas id="output_canvas"></canvas>
     </div>
 
