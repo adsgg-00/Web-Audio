@@ -88,28 +88,27 @@ function onResults(results) {
     canvasCtx.restore();
 }
 
-// --- 4. 建立影像處理迴圈 ---
-const camera = new Camera(videoElement, {
-    onFrame: async () => {
-        await hands.send({image: videoElement});
-    },
-    width: 640,
-    height: 480
-});
-
 // --- 5. 執行主程式 ---
 async function main() {
     console.log("正在啟動攝影機...");
     await setupCamera();
     videoElement.play();
     console.log("攝影機啟動成功！");
-
+    
     console.log("正在初始化 MediaPipe 模型...");
     // 確保模型開始執行
     await hands.initialize();
     console.log("模型初始化完成，正在啟動偵測...");
     
-    // 啟動迴圈
+    // --- 4. 建立並啟動影像處理迴圈 ---
+    // 將 Camera 的實例化移至此處，確保 videoElement 已完全準備好
+    const camera = new Camera(videoElement, {
+        onFrame: async () => {
+            await hands.send({image: videoElement});
+        },
+        width: 640,
+        height: 480
+    });
     camera.start();
 }
 
