@@ -3,13 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>手勢音樂合成器 (Step 1)</title>
+    <title>手勢音樂合成器 (Step 2)</title>
     <link rel="stylesheet" href="style.css">
+    
+    <!-- 引入 MediaPipe 核心與繪圖套件 -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 </head>
 <body>
     <div class="container">
-        <!-- autoplay 確保載入後自動播放，playsinline 確保在手機上不會全螢幕播放 -->
         <video id="webcam" autoplay playsinline></video>
+        <!-- 新增 canvas，做為透明圖層用來畫上手部節點 -->
+        <canvas id="output_canvas"></canvas>
     </div>
 
     <script src="script.js"></script>
