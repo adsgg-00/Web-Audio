@@ -8,6 +8,8 @@ const synth = new Tone.Synth().toDestination();
 const waveform = new Tone.Waveform();
 synth.connect(waveform);
 let isPlaying = false;
+// ✨ 新增：用於追蹤音訊核心是否已啟動的狀態旗標
+let isAudioContextStarted = false;
 
 // --- 1. 攝影機設定 (保留並確認) ---
 async function setupCamera() {
@@ -97,6 +99,13 @@ function onResults(results) {
             const pinchThreshold = 0.05;
 
             if (distance < pinchThreshold) {
+                // ✨ 關鍵修復：在第一次偵測到捏合手勢時，啟動 Tone.js 的音訊核心。
+                // 這是瀏覽器音訊政策的要求，必須由使用者互動觸發。
+                if (!isAudioContextStarted) {
+                    Tone.start();
+                    isAudioContextStarted = true;
+                    console.log("音訊核心 (AudioContext) 已成功啟動！");
+                }
                 isPinchingThisFrame = true; // 標記這一幀偵測到了捏合
 
                 const minFreq = 261; // C4 音高
