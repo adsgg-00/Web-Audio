@@ -35,10 +35,12 @@ const hands = new Hands({
 });
 
 hands.setOptions({
+    // 根據您的要求，設定為偵測兩隻手
     maxNumHands: 2,
-    modelComplexity: 1,
+    // 使用較精準的模型。如果感覺延遲，可以將此值改為 0 以換取效能。
+    modelComplexity: 1, 
     minDetectionConfidence: 0.5,
-    minTrackingConfidence: 0.5
+    minTrackingConfidence: 0.7 // 提高追蹤信賴度，讓偵測更穩定
 });
 
 // --- 3. 處理辨識結果並繪製 ---
@@ -60,9 +62,9 @@ function onResults(results) {
     // 將攝影機影像畫到畫布上，這樣影像和標記點才會在同一個畫布上被一起鏡像
     canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
     
-    // 【調試點 2】確認是否有偵測到手部數據
+    let isPinchingThisFrame = false; // 用於追蹤當前這一幀是否有任何手在捏合
+
     if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-        // console.log(`偵測到 ${results.multiHandLandmarks.length} 隻手`);
 
         // 迴圈處理每一隻手
         for (const landmarks of results.multiHandLandmarks) {
@@ -81,56 +83,43 @@ function onResults(results) {
                 radius: 3
             });
             
-            // --- ✨ 第三步 & 第四步：手勢偵測與聲音互動 ---
-            
-            // 取得大拇指指尖 (索引 4) 和食指指尖 (索引 8) 的座標
             const thumbTip = landmarks[4];
             const indexFingerTip = landmarks[8];
 
-            // 計算兩點之間的歐幾里得距離
-            // 座標是正規化的 (0.0 - 1.0)，所以距離也是一個相對值
             const distance = Math.sqrt(
                 Math.pow(thumbTip.x - indexFingerTip.x, 2) +
                 Math.pow(thumbTip.y - indexFingerTip.y, 2)
             );
 
-            // 設定一個觸發「捏合」手勢的距離閾值 (這個值可以根據您的攝影機和習慣微調)
             const pinchThreshold = 0.05;
 
             if (distance < pinchThreshold) {
-                // --- 捏合狀態 ---
+                isPinchingThisFrame = true; // 標記這一幀偵測到了捏合
 
-                // 將食指的 Y 座標 (範圍 0.0 ~ 1.0) 轉換為音高頻率
-                // Y 座標越上面值越小，越下面值越大。我們希望手越高，音越高。
-                // 因此使用 (1 - y) 來反轉。
                 const minFreq = 261; // C4 音高
                 const maxFreq = 1046; // C6 音高
                 const freq = (1 - indexFingerTip.y) * (maxFreq - minFreq) + minFreq;
 
                 if (!isPlaying) {
-                    // 如果聲音還沒開始播放，就觸發它
                     synth.triggerAttack(freq);
                     isPlaying = true;
                 }
-                // 如果聲音正在播放，就使用 rampTo 平滑地更新頻率
                 synth.frequency.rampTo(freq, 0.1);
 
-            } else {
-                // --- 非捏合狀態 ---
-                if (isPlaying) {
-                    // 如果之前正在播放聲音，就停止它
-                    synth.triggerRelease();
-                    isPlaying = false;
-                }
+                // 因為我們只有一個合成器，只要找到任何一隻手在捏合，
+                // 就可以設定好聲音並跳出迴圈，以節省資源。
+                break;
             }
         }
-    } else {
-        // 如果畫面上沒有偵測到手，也要確保停止聲音
-        if (isPlaying) {
-            synth.triggerRelease();
-            isPlaying = false;
-        }
     }
+
+    // 在檢查完所有的手之後，如果這一幀沒有任何手在捏合，且聲音仍在播放，就停止它。
+    // 這個邏輯可以正確處理「沒有手」或「有手但沒捏合」這兩種情況。
+    if (!isPinchingThisFrame && isPlaying) {
+        synth.triggerRelease();
+        isPlaying = false;
+    }
+
     canvasCtx.restore();
 }
 
