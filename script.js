@@ -75,6 +75,45 @@ hands.setOptions({
     minTrackingConfidence: 0.7 // 提高追蹤信賴度，讓偵測更穩定
 });
 
+/**
+ * 計算指定手部伸出的手指數量。
+ * @param {Array} landmarks - MediaPipe回傳的手部關節點。
+ * @param {string} handLabel - 'Left' 或 'Right'。
+ * @returns {number} 伸出的手指數量 (0-5)。
+ */
+function countExtendedFingers(landmarks, handLabel) {
+    let extendedFingers = 0;
+
+    // 關節點索引：指尖 和 指關節(PIP)
+    const fingerTipIds = [4, 8, 12, 16, 20];
+    const fingerPipIds = [3, 6, 10, 14, 18]; // 食指到小指用PIP，大拇指用IP
+
+    // 1. 判斷大拇指
+    // 簡單的判斷方式：比較指尖和關節的水平位置
+    const thumbTip = landmarks[fingerTipIds[0]];
+    const thumbPip = landmarks[fingerPipIds[0]]; // 實際上是大拇指的IP關節
+    if (handLabel === 'Right') {
+        if (thumbTip.x < thumbPip.x) {
+            extendedFingers++;
+        }
+    } else { // 'Left'
+        if (thumbTip.x > thumbPip.x) {
+            extendedFingers++;
+        }
+    }
+
+    // 2. 判斷其他四隻手指
+    for (let i = 1; i < 5; i++) {
+        const tip = landmarks[fingerTipIds[i]];
+        const pip = landmarks[fingerPipIds[i]];
+        // 如果指尖的Y座標小於（高於）指關節的Y座標，則視為伸出
+        if (tip.y < pip.y) {
+            extendedFingers++;
+        }
+    }
+    return extendedFingers;
+}
+
 // --- 3. 處理辨識結果並繪製 ---
 hands.onResults(onResults);
 
@@ -95,10 +134,10 @@ function onResults(results) {
     canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
     
     // ✨ 升級：初始化本幀的手部資訊
-    let isRightHandPinching = false;
-    let rightHandPitch = 440; // 預設音高
-    let isLeftHandPinching = false;
+    let leftHandFingerCount = 0;
+    let rightHandFingerCount = 0;
     let leftHandVolume = 0;   // 預設音量 (最大)
+    let isRightHandVisible = false;
     let isLeftHandVisible = false;
 
     if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
@@ -116,30 +155,18 @@ function onResults(results) {
                 color: '#FFFFFF', fillColor: '#FFFFFF', lineWidth: 2, radius: 3
             });
 
-            if (handLabel === 'Right') {
-                // --- 右手：控制音高與觸發 ---
-                const thumbTip = landmarks[4];
-                const indexFingerTip = landmarks[8];
-                const distance = Math.sqrt(Math.pow(thumbTip.x - indexFingerTip.x, 2) + Math.pow(thumbTip.y - indexFingerTip.y, 2));
-                const pinchThreshold = 0.05;
+            // 計算伸出的手指數量
+            const fingerCount = countExtendedFingers(landmarks, handLabel);
 
-                if (distance < pinchThreshold) {
-                    isRightHandPinching = true;
-                    const minFreq = 261; // C4
-                    const maxFreq = 1046; // C6
-                    rightHandPitch = (1 - indexFingerTip.y) * (maxFreq - minFreq) + minFreq;
-                }
+            if (handLabel === 'Right') {
+                isRightHandVisible = true;
+                rightHandFingerCount = fingerCount;
             }
 
             if (handLabel === 'Left') {
-                // --- 左手：控制音量 ---
-                const thumbTip = landmarks[4];
-                const indexFingerTip = landmarks[8];
-                const distance = Math.sqrt(Math.pow(thumbTip.x - indexFingerTip.x, 2) + Math.pow(thumbTip.y - indexFingerTip.y, 2));
-                if (distance < 0.05) {
-                    isLeftHandPinching = true;
-                }
                 isLeftHandVisible = true;
+                leftHandFingerCount = fingerCount;
+
                 // 使用手腕 (landmark 0) 的 Y 座標來控制音量，比較穩定
                 const wristY = landmarks[0].y;
                 const minVol = -30; // 安靜 (dB)
@@ -150,55 +177,71 @@ function onResults(results) {
         });
     }
 
-    // --- 決策階段：根據手勢決定進入「和弦模式」或「單音模式」---
+    // --- 全新決策階段：根據手指數量決定和弦 ---
     const targetVolume = isLeftHandVisible ? leftHandVolume : 0;
-    const isChordMode = isLeftHandPinching;
-    const isNoteMode = isRightHandPinching && !isLeftHandPinching;
+    
+    // 1. 根據左手手指數決定根音
+    let rootNote = 'A3'; // 預設為 A(I)
+    switch (leftHandFingerCount) {
+        case 5: rootNote = 'E4'; break;    // V
+        case 4: rootNote = 'D4'; break;    // IV
+        case 3: rootNote = 'C#4'; break;   // III
+        case 2: rootNote = 'B3'; break;    // ii
+        case 1: // fall-through
+        case 0: // fall-through
+        default:
+            rootNote = 'A3'; break;    // I
+    }
 
-    // --- 和弦模式控制 ---
-    if (isChordMode) {
-        // 進入和弦模式時，確保單音模式是關閉的
-        if (isMonoPlaying) { monoSynth.triggerRelease(); isMonoPlaying = false; }
+    // 2. 根據右手手指數決定和弦類型並觸發聲音
+    let chord = [];
+    const trigger = isRightHandVisible && rightHandFingerCount > 0;
 
+    if (trigger) {
+        const baseNote = new Tone.Frequency(rootNote);
+        switch (rightHandFingerCount) {
+            case 1: // Major
+                chord = [baseNote.toNote(), baseNote.transpose(4).toNote(), baseNote.transpose(7).toNote()];
+                break;
+            case 2: // Major 1st inversion
+                chord = [baseNote.transpose(4).toNote(), baseNote.transpose(7).toNote(), baseNote.transpose(12).toNote()];
+                break;
+            case 3: // Major 7th
+                chord = [baseNote.toNote(), baseNote.transpose(4).toNote(), baseNote.transpose(7).toNote(), baseNote.transpose(11).toNote()];
+                break;
+            case 4: // Dominant 7th
+                chord = [baseNote.toNote(), baseNote.transpose(4).toNote(), baseNote.transpose(7).toNote(), baseNote.transpose(10).toNote()];
+                break;
+            case 5: // Dominant 7th (-8ve)
+                const lowBase = baseNote.transpose(-12);
+                chord = [lowBase.toNote(), lowBase.transpose(4).toNote(), lowBase.transpose(7).toNote(), lowBase.transpose(10).toNote()];
+                break;
+        }
+    }
+
+    // --- 聲音控制 ---
+    if (trigger && chord.length > 0) {
         if (!isAudioContextStarted) {
             Tone.start();
             isAudioContextStarted = true;
             console.log("音訊核心 (AudioContext) 已成功啟動！");
         }
 
-        // 根據右手位置決定和弦的根音，並建立一個大三和弦
-        const rootNote = rightHandPitch;
-        const majorThird = rootNote * Math.pow(2, 4/12);
-        const perfectFifth = rootNote * Math.pow(2, 7/12);
-        const chord = [rootNote, majorThird, perfectFifth];
-
+        if (isMonoPlaying) { monoSynth.triggerRelease(); isMonoPlaying = false; } // 確保單音模式關閉
         polySynth.volume.rampTo(targetVolume, 0.1);
         polySynth.triggerAttack(chord); // 觸發或更新和弦
         isPolyPlaying = true;
-
     } else {
-        // 如果沒有觸發和弦模式，確保和弦是關閉的
+        // 如果不滿足觸發條件，則停止所有聲音
         if (isPolyPlaying) { polySynth.releaseAll(); isPolyPlaying = false; }
-    }
-
-    // --- 單音模式控制 ---
-    if (isNoteMode) {
-        if (!isAudioContextStarted) { Tone.start(); isAudioContextStarted = true; }
-
-        monoSynth.volume.rampTo(targetVolume, 0.1);
-        monoSynth.frequency.rampTo(rightHandPitch, 0.1); // 平滑改變音高
-
-        if (!isMonoPlaying) { monoSynth.triggerAttack(rightHandPitch); isMonoPlaying = true; }
-    } else {
         if (isMonoPlaying) { monoSynth.triggerRelease(); isMonoPlaying = false; }
     }
 
     // --- 繪製視覺回饋 (只要有聲音就繪製) ---
-    if (isMonoPlaying || isPolyPlaying) {
+    if (isPolyPlaying) {
         const waveformValues = waveform.getValue();
         drawWaveform(canvasCtx, waveformValues, canvasElement.width, canvasElement.height);
     }
-
     canvasCtx.restore();
 }
 
