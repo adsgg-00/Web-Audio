@@ -4,6 +4,9 @@ const canvasCtx = canvasElement.getContext('2d');
 
 // ✨ 新增：初始化 Tone.js 合成器，並設定一個狀態變數來追蹤聲音
 const synth = new Tone.Synth().toDestination();
+// ✨ 新增：初始化 Tone.js 音波分析器
+const waveform = new Tone.Waveform();
+synth.connect(waveform);
 let isPlaying = false;
 
 // --- 1. 攝影機設定 (保留並確認) ---
@@ -113,6 +116,13 @@ function onResults(results) {
         }
     }
 
+    // --- 第五步：繪製音波圖 ---
+    // 只有在播放聲音時才需要繪製音波
+    if (isPlaying) {
+        const waveformValues = waveform.getValue();
+        drawWaveform(canvasCtx, waveformValues, canvasElement.width, canvasElement.height);
+    }
+
     // 在檢查完所有的手之後，如果這一幀沒有任何手在捏合，且聲音仍在播放，就停止它。
     // 這個邏輯可以正確處理「沒有手」或「有手但沒捏合」這兩種情況。
     if (!isPinchingThisFrame && isPlaying) {
@@ -121,6 +131,42 @@ function onResults(results) {
     }
 
     canvasCtx.restore();
+}
+
+/**
+ * 繪製音波圖的輔助函式
+ * @param {CanvasRenderingContext2D} ctx - Canvas 的 2D 上下文
+ * @param {Float32Array} data - Tone.Waveform 回傳的音波數據
+ * @param {number} width - 畫布寬度
+ * @param {number} height - 畫布高度
+ */
+function drawWaveform(ctx, data, width, height) {
+    const waveHeight = 100; // 音波圖的高度
+    const yOffset = height - waveHeight; // 將音波圖放在畫布底部
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)'; // 音波圖的半透明背景
+    ctx.fillRect(0, yOffset, width, waveHeight);
+
+    ctx.strokeStyle = '#9CF'; // 音波線條顏色 (淺藍色)
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+
+    const sliceWidth = width / data.length;
+
+    for (let i = 0; i < data.length; i++) {
+        const v = data[i]; // 音波數據值在 -1 到 1 之間
+        // 將 -1 到 1 的值映射到音波圖區域的 Y 座標
+        const y = (v * waveHeight / 2) + (yOffset + waveHeight / 2);
+
+        if (i === 0) {
+            ctx.moveTo(0, y);
+        } else {
+            ctx.lineTo(i * sliceWidth, y);
+        }
+    }
+    ctx.stroke();
+    ctx.restore();
 }
 
 // --- 5. 執行主程式 ---
