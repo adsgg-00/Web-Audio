@@ -1,22 +1,16 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>手勢音樂合成器 (Step 2)</title>
-    <link rel="stylesheet" href="style.css">
-    
-    <!-- 引入 MediaPipe 核心與繪圖套件 -->
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <!-- ... 其他 head 設定 ... -->
 </head>
 <body>
     <div class="container">
         <video id="webcam" autoplay playsinline></video>
-        <!-- 新增 canvas，做為透明圖層用來畫上手部節點 -->
+        <!-- 確保這行存在，且 ID 拼字正確 -->
         <canvas id="output_canvas"></canvas>
     </div>
 
+    <!-- 💡 關鍵：JavaScript 必須放在 body 的最後面 -->
     <script src="script.js"></script>
 </body>
 </html>
