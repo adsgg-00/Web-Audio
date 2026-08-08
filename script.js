@@ -2,20 +2,17 @@ const videoElement = document.getElementById('webcam');
 const canvasElement = document.getElementById('output_canvas');
 const canvasCtx = canvasElement.getContext('2d');
  
-// ✨ 升級：建立兩種不同音色的合成器，分別給兩隻手使用
-const synths = [
-    new Tone.FMSynth().toDestination(), // FM 合成器音色
-    new Tone.AMSynth().toDestination()  // AM 合成器音色
-];
-// ✨ 升級：一個音波分析器，用於視覺化兩個合成器的混合聲音
-const waveform = new Tone.Waveform();
-synths.forEach(synth => synth.connect(waveform)); // 將兩個合成器都連接到分析器
+// ✨ 升級：建立一個合成器，我們將用左右手分別控制它的音高和音量
+const synth = new Tone.Synth().toDestination();
 
-// ✨ 升級：為兩隻手（索引 0 和 1）分別管理聲音狀態
-const handStates = [
-    { isPlaying: false },
-    { isPlaying: false }
-];
+// ✨ 升級：一個音波分析器，用於視覺化聲音
+const waveform = new Tone.Waveform();
+synth.connect(waveform); // 將合成器連接到分析器
+
+// ✨ 升級：用一個狀態物件來管理聲音
+let soundState = {
+    isPlaying: false
+};
 
 // ✨ 新增：用於追蹤音訊核心是否已啟動的狀態旗標
 let isAudioContextStarted = false;
@@ -76,16 +73,18 @@ function onResults(results) {
     // 將攝影機影像畫到畫布上，這樣影像和標記點才會在同一個畫布上被一起鏡像
     canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
     
-    // ✨ 升級：追蹤此幀中處理了哪些手，以便偵測消失的手
-    const handsProcessed = [false, false];
+    // ✨ 升級：初始化本幀的手部資訊
+    let isRightHandPinching = false;
+    let rightHandPitch = 440; // 預設音高
+    let leftHandVolume = 0;   // 預設音量 (最大)
+    let isLeftHandVisible = false;
 
     if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
 
         // ✨ 升級：迴圈處理偵測到的每一隻手
         results.multiHandLandmarks.forEach((landmarks, i) => {
-            // 根據 MediaPipe 回傳的 handedness 取得手的索引 (0 或 1)
-            const handIndex = results.multiHandedness[i].index;
-            handsProcessed[handIndex] = true;
+            const handMeta = results.multiHandedness[i];
+            const handLabel = handMeta.label; // 'Left' or 'Right'
 
             // 繪製手部關節點與連線
             drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {
@@ -94,54 +93,63 @@ function onResults(results) {
             drawLandmarks(canvasCtx, landmarks, {
                 color: '#FFFFFF', fillColor: '#FFFFFF', lineWidth: 2, radius: 3
             });
-            
-            const thumbTip = landmarks[4];
-            const indexFingerTip = landmarks[8];
-            const distance = Math.sqrt(
-                Math.pow(thumbTip.x - indexFingerTip.x, 2) +
-                Math.pow(thumbTip.y - indexFingerTip.y, 2)
-            );
-            const pinchThreshold = 0.05;
 
-            if (distance < pinchThreshold) {
-                // --- 此手處於「捏合」狀態 ---
-                if (!isAudioContextStarted) {
-                    Tone.start();
-                    isAudioContextStarted = true;
-                    console.log("音訊核心 (AudioContext) 已成功啟動！");
+            if (handLabel === 'Right') {
+                // --- 右手：控制音高與觸發 ---
+                const thumbTip = landmarks[4];
+                const indexFingerTip = landmarks[8];
+                const distance = Math.sqrt(Math.pow(thumbTip.x - indexFingerTip.x, 2) + Math.pow(thumbTip.y - indexFingerTip.y, 2));
+                const pinchThreshold = 0.05;
+
+                if (distance < pinchThreshold) {
+                    isRightHandPinching = true;
+                    const minFreq = 261; // C4
+                    const maxFreq = 1046; // C6
+                    rightHandPitch = (1 - indexFingerTip.y) * (maxFreq - minFreq) + minFreq;
                 }
+            }
 
-                const minFreq = 261; // C4 音高
-                const maxFreq = 1046; // C6 音高
-                const freq = (1 - indexFingerTip.y) * (maxFreq - minFreq) + minFreq;
-
-                if (!handStates[handIndex].isPlaying) {
-                    synths[handIndex].triggerAttack(freq);
-                    handStates[handIndex].isPlaying = true;
-                }
-                synths[handIndex].frequency.rampTo(freq, 0.1);
-
-            } else {
-                // --- 此手處於「放開」狀態 ---
-                if (handStates[handIndex].isPlaying) {
-                    synths[handIndex].triggerRelease();
-                    handStates[handIndex].isPlaying = false;
-                }
+            if (handLabel === 'Left') {
+                // --- 左手：控制音量 ---
+                isLeftHandVisible = true;
+                // 使用手腕 (landmark 0) 的 Y 座標來控制音量，比較穩定
+                const wristY = landmarks[0].y;
+                const minVol = -30; // 安靜 (dB)
+                const maxVol = 0;   // 大聲 (dB)
+                // 手越高 (y 越小)，音量越大
+                leftHandVolume = (1 - wristY) * (maxVol - minVol) + minVol;
             }
         });
     }
 
-    // ✨ 升級：如果某隻手從畫面上消失了，也要確保停止其聲音
-    handsProcessed.forEach((processed, handIndex) => {
-        if (!processed && handStates[handIndex].isPlaying) {
-            synths[handIndex].triggerRelease();
-            handStates[handIndex].isPlaying = false;
+    // --- 決策階段：根據收集到的手部資訊來控制聲音 ---
+    if (isRightHandPinching) {
+        if (!isAudioContextStarted) {
+            Tone.start();
+            isAudioContextStarted = true;
+            console.log("音訊核心 (AudioContext) 已成功啟動！");
         }
-    });
 
-    // ✨ 升級：只要有任何一隻手在播放聲音，就繪製音波圖
-    const isAnyHandPlaying = handStates.some(state => state.isPlaying);
-    if (isAnyHandPlaying) {
+        // 如果左手不可見，則使用預設的最大音量
+        const targetVolume = isLeftHandVisible ? leftHandVolume : 0;
+
+        // 平滑地更新音量與音高
+        synth.volume.rampTo(targetVolume, 0.1);
+        synth.frequency.rampTo(rightHandPitch, 0.1);
+
+        if (!soundState.isPlaying) {
+            synth.triggerAttack(rightHandPitch);
+            soundState.isPlaying = true;
+        }
+    } else {
+        if (soundState.isPlaying) {
+            synth.triggerRelease();
+            soundState.isPlaying = false;
+        }
+    }
+
+    // --- 繪製視覺回饋 ---
+    if (soundState.isPlaying) {
         const waveformValues = waveform.getValue();
         drawWaveform(canvasCtx, waveformValues, canvasElement.width, canvasElement.height);
     }
