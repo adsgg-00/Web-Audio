@@ -92,8 +92,15 @@ function onResults(results) {
 async function main() {
     console.log("正在啟動攝影機...");
     await setupCamera();
-    videoElement.play();
-    console.log("攝影機啟動成功！");
+    try {
+        // 關鍵：play() 會回傳一個 Promise。我們需要 await 它，
+        // 確保影片真正開始播放後，才繼續執行後續的偵測啟動。
+        await videoElement.play();
+        console.log("攝影機啟動成功！");
+    } catch (error) {
+        console.error("影片播放失敗：", error);
+        return; // 如果播放失敗，則停止執行
+    }
     
     console.log("正在初始化 MediaPipe 模型...");
     // 確保模型開始執行
