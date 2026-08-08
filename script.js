@@ -2,18 +2,38 @@ const videoElement = document.getElementById('webcam');
 const canvasElement = document.getElementById('output_canvas');
 const canvasCtx = canvasElement.getContext('2d');
  
-// ✨ 升級：建立兩個合成器
-const monoSynth = new Tone.Synth().toDestination(); // 用於右手單音，支援平滑音高變化
-const polySynth = new Tone.PolySynth(Tone.Synth).toDestination(); // 用於左手和弦
+// ✨ 升級：可切換的合成器
+let monoSynth;
+let polySynth;
+
+const synthOptions = {
+    'Synth': Tone.Synth,
+    'FMSynth': Tone.FMSynth,
+    'AMSynth': Tone.AMSynth,
+    'DuoSynth': Tone.DuoSynth,
+};
 
 // ✨ 升級：一個音波分析器，用於視覺化所有聲音
 const waveform = new Tone.Waveform();
-monoSynth.connect(waveform);
-polySynth.connect(waveform);
 
 // ✨ 升級：為兩種模式分別管理聲音狀態
 let isMonoPlaying = false;
 let isPolyPlaying = false;
+
+function createSynths(type = 'Synth') {
+    // 清理舊的合成器以防止記憶體洩漏
+    if (monoSynth) monoSynth.dispose();
+    if (polySynth) polySynth.dispose();
+
+    const SynthConstructor = synthOptions[type] || Tone.Synth;
+
+    monoSynth = new SynthConstructor().toDestination();
+    polySynth = new Tone.PolySynth(SynthConstructor).toDestination();
+
+    monoSynth.connect(waveform);
+    polySynth.connect(waveform);
+    console.log(`音色已切換為: ${type}`);
+}
 
 // ✨ 新增：用於追蹤音訊核心是否已啟動的狀態旗標
 let isAudioContextStarted = false;
@@ -221,6 +241,14 @@ function drawWaveform(ctx, data, width, height) {
 // --- 5. 執行主程式 ---
 async function main() {
     console.log("正在啟動攝影機...");
+
+    // ✨ 升級：初始化預設合成器並設定 UI 事件監聽
+    createSynths('Synth'); // 初始化預設音色
+    const synthSelectElement = document.getElementById('synth-select');
+    synthSelectElement.addEventListener('change', (event) => {
+        createSynths(event.target.value);
+    });
+
     await setupCamera();
     try {
         // 關鍵：play() 會回傳一個 Promise。我們需要 await 它，

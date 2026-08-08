@@ -33,9 +33,39 @@
             object-fit: contain; /* 保持影像比例，完整顯示 */
             transform: scaleX(-1); /* 水平翻轉，實現鏡像效果 */
         }
+        .controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            background-color: rgba(0, 0, 0, 0.6);
+            padding: 12px;
+            border-radius: 8px;
+            color: white;
+            font-family: sans-serif;
+        }
+        .controls label {
+            margin-right: 10px;
+        }
+        .controls select {
+            padding: 5px;
+            border-radius: 4px;
+            border: 1px solid #555;
+            background-color: #333;
+            color: white;
+        }
     </style>
 </head>
 <body>
+    <div class="controls">
+        <label for="synth-select">音色:</label>
+        <select id="synth-select">
+            <option value="Synth" selected>基本 (Synth)</option>
+            <option value="FMSynth">金屬 (FM)</option>
+            <option value="AMSynth">顫音 (AM)</option>
+            <option value="DuoSynth">雙振盪 (Duo)</option>
+        </select>
+    </div>
     <div class="container">
         <video id="webcam" autoplay playsinline></video>
         <canvas id="output_canvas"></canvas>
