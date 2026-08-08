@@ -2,17 +2,18 @@ const videoElement = document.getElementById('webcam');
 const canvasElement = document.getElementById('output_canvas');
 const canvasCtx = canvasElement.getContext('2d');
  
-// ✨ 升級：建立一個合成器，我們將用左右手分別控制它的音高和音量
-const synth = new Tone.Synth().toDestination();
+// ✨ 升級：建立兩個合成器
+const monoSynth = new Tone.Synth().toDestination(); // 用於右手單音，支援平滑音高變化
+const polySynth = new Tone.PolySynth(Tone.Synth).toDestination(); // 用於左手和弦
 
-// ✨ 升級：一個音波分析器，用於視覺化聲音
+// ✨ 升級：一個音波分析器，用於視覺化所有聲音
 const waveform = new Tone.Waveform();
-synth.connect(waveform); // 將合成器連接到分析器
+monoSynth.connect(waveform);
+polySynth.connect(waveform);
 
-// ✨ 升級：用一個狀態物件來管理聲音
-let soundState = {
-    isPlaying: false
-};
+// ✨ 升級：為兩種模式分別管理聲音狀態
+let isMonoPlaying = false;
+let isPolyPlaying = false;
 
 // ✨ 新增：用於追蹤音訊核心是否已啟動的狀態旗標
 let isAudioContextStarted = false;
@@ -76,6 +77,7 @@ function onResults(results) {
     // ✨ 升級：初始化本幀的手部資訊
     let isRightHandPinching = false;
     let rightHandPitch = 440; // 預設音高
+    let isLeftHandPinching = false;
     let leftHandVolume = 0;   // 預設音量 (最大)
     let isLeftHandVisible = false;
 
@@ -111,6 +113,12 @@ function onResults(results) {
 
             if (handLabel === 'Left') {
                 // --- 左手：控制音量 ---
+                const thumbTip = landmarks[4];
+                const indexFingerTip = landmarks[8];
+                const distance = Math.sqrt(Math.pow(thumbTip.x - indexFingerTip.x, 2) + Math.pow(thumbTip.y - indexFingerTip.y, 2));
+                if (distance < 0.05) {
+                    isLeftHandPinching = true;
+                }
                 isLeftHandVisible = true;
                 // 使用手腕 (landmark 0) 的 Y 座標來控制音量，比較穩定
                 const wristY = landmarks[0].y;
@@ -122,34 +130,51 @@ function onResults(results) {
         });
     }
 
-    // --- 決策階段：根據收集到的手部資訊來控制聲音 ---
-    if (isRightHandPinching) {
+    // --- 決策階段：根據手勢決定進入「和弦模式」或「單音模式」---
+    const targetVolume = isLeftHandVisible ? leftHandVolume : 0;
+    const isChordMode = isLeftHandPinching;
+    const isNoteMode = isRightHandPinching && !isLeftHandPinching;
+
+    // --- 和弦模式控制 ---
+    if (isChordMode) {
+        // 進入和弦模式時，確保單音模式是關閉的
+        if (isMonoPlaying) { monoSynth.triggerRelease(); isMonoPlaying = false; }
+
         if (!isAudioContextStarted) {
             Tone.start();
             isAudioContextStarted = true;
             console.log("音訊核心 (AudioContext) 已成功啟動！");
         }
 
-        // 如果左手不可見，則使用預設的最大音量
-        const targetVolume = isLeftHandVisible ? leftHandVolume : 0;
+        // 根據右手位置決定和弦的根音，並建立一個大三和弦
+        const rootNote = rightHandPitch;
+        const majorThird = rootNote * Math.pow(2, 4/12);
+        const perfectFifth = rootNote * Math.pow(2, 7/12);
+        const chord = [rootNote, majorThird, perfectFifth];
 
-        // 平滑地更新音量與音高
-        synth.volume.rampTo(targetVolume, 0.1);
-        synth.frequency.rampTo(rightHandPitch, 0.1);
+        polySynth.volume.rampTo(targetVolume, 0.1);
+        polySynth.triggerAttack(chord); // 觸發或更新和弦
+        isPolyPlaying = true;
 
-        if (!soundState.isPlaying) {
-            synth.triggerAttack(rightHandPitch);
-            soundState.isPlaying = true;
-        }
     } else {
-        if (soundState.isPlaying) {
-            synth.triggerRelease();
-            soundState.isPlaying = false;
-        }
+        // 如果沒有觸發和弦模式，確保和弦是關閉的
+        if (isPolyPlaying) { polySynth.releaseAll(); isPolyPlaying = false; }
     }
 
-    // --- 繪製視覺回饋 ---
-    if (soundState.isPlaying) {
+    // --- 單音模式控制 ---
+    if (isNoteMode) {
+        if (!isAudioContextStarted) { Tone.start(); isAudioContextStarted = true; }
+
+        monoSynth.volume.rampTo(targetVolume, 0.1);
+        monoSynth.frequency.rampTo(rightHandPitch, 0.1); // 平滑改變音高
+
+        if (!isMonoPlaying) { monoSynth.triggerAttack(rightHandPitch); isMonoPlaying = true; }
+    } else {
+        if (isMonoPlaying) { monoSynth.triggerRelease(); isMonoPlaying = false; }
+    }
+
+    // --- 繪製視覺回饋 (只要有聲音就繪製) ---
+    if (isMonoPlaying || isPolyPlaying) {
         const waveformValues = waveform.getValue();
         drawWaveform(canvasCtx, waveformValues, canvasElement.width, canvasElement.height);
     }
